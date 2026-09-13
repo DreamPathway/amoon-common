@@ -2,12 +2,7 @@ package com.shiguangshe.common.api;
 
 import lombok.Data;
 
-/**
- * @ClassName: CommonResult
- * @Description: 统一接口返回格式
- * @Author: ZM
- * @Date: 2026年09月12日  22:58
- **/
+
 @Data
 public class CommonResult<T> {
 

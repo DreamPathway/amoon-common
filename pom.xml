@@ -13,6 +13,8 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.source>17</maven.compiler.source>
+    <maven.compiler.target>17</maven.compiler.target>
   </properties>
 
   <!-- 项目许可证，使用协议 -->
@@ -54,13 +56,24 @@
     </repository>
   </distributionManagement>
 
+  <dependencies>
+    <!-- 引入 Lombok 依赖，用于简化实体类代码 -->
+    <dependency>
+      <groupId>org.projectlombok</groupId>
+      <artifactId>lombok</artifactId>
+      <version>1.18.30</version> <!-- 版本号可以根据实际情况微调，1.18.30 是目前比较新的稳定版 -->
+      <scope>provided</scope>
+    </dependency>
+
+  </dependencies>
+
   <build>
     <plugins>
       <!--    Maven插件发布    -->
       <plugin>
         <groupId>org.sonatype.central</groupId>
         <artifactId>central-publishing-maven-plugin</artifactId>
-        <version>0.4.0</version>
+        <version>0.11.0</version>
         <extensions>true</extensions>
         <configuration>
           <publishingServerId>central</publishingServerId>
