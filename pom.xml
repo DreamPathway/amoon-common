@@ -4,7 +4,7 @@
 
   <groupId>io.github.dreampathway</groupId>
   <artifactId>amoon-common</artifactId>
-  <version>1.0.0</version>
+  <version>1.1.0</version>
   <packaging>jar</packaging>
 
   <name>${project.groupId}:${project.artifactId}</name>
@@ -15,6 +15,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.source>17</maven.compiler.source>
     <maven.compiler.target>17</maven.compiler.target>
+    <jbcrypt.version>0.4</jbcrypt.version>
   </properties>
 
   <!-- 项目许可证，使用协议 -->
@@ -64,6 +65,12 @@
       <version>1.18.30</version> <!-- 版本号可以根据实际情况微调，1.18.30 是目前比较新的稳定版 -->
       <scope>provided</scope>
     </dependency>
+    <!-- 引入 bcrypt 依赖，用于密码加密 -->
+    <dependency>
+      <groupId>org.mindrot</groupId>
+      <artifactId>jbcrypt</artifactId>
+      <version>${jbcrypt.version}</version>
+    </dependency>
 
   </dependencies>
 
@@ -77,7 +84,6 @@
         <extensions>true</extensions>
         <configuration>
           <publishingServerId>central</publishingServerId>
-          <tokenAuth>true</tokenAuth>
           <autoPublish>false</autoPublish>
         </configuration>
       </plugin>
@@ -117,7 +123,18 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-javadoc-plugin</artifactId>
-        <version>2.9.1</version>
+        <version>3.6.3</version>
+        <configuration>
+          <!-- 启用所有检查，但忽略"缺失注释"类问题（@throws、@return、@param 没写） -->
+          <doclint>all,-missing</doclint>
+          <!-- 统一 UTF-8 编码，解决中文乱码 -->
+          <encoding>UTF-8</encoding>
+          <charset>UTF-8</charset>
+          <docencoding>UTF-8</docencoding>
+          <!-- 允许生成 Javadoc 时忽略部分错误，不阻断构建 -->
+          <failOnError>false</failOnError>
+          <failOnWarnings>false</failOnWarnings>
+        </configuration>
         <executions>
           <execution>
             <id>attach-javadocs</id>
