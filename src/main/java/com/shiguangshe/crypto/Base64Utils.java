@@ -1,5 +1,7 @@
 package com.shiguangshe.crypto;
 
+import com.shiguangshe.crypto.constant.CryptoConstant;
+
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -9,8 +11,6 @@ import java.util.Base64;
  * 注意：Base64 不是加密，只是编码，任何人都能解码
  */
 public class Base64Utils {
-
-    private static final String CHARSET = "UTF-8";
 
     // =====================================================
     // 1. 字符串编码/解码
@@ -64,7 +64,7 @@ public class Base64Utils {
     public static String encodeFile(File file) throws IOException {
         try (FileInputStream fis = new FileInputStream(file);
              ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
-            byte[] buffer = new byte[8192];
+            byte[] buffer = new byte[CryptoConstant.BUFFER_SIZE];
             int len;
             while ((len = fis.read(buffer)) != -1) {
                 bos.write(buffer, 0, len);

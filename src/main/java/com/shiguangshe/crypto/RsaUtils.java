@@ -1,10 +1,9 @@
 package com.shiguangshe.crypto;
 
+import com.shiguangshe.crypto.constant.CryptoConstant;
+
 import javax.crypto.Cipher;
-import javax.crypto.CipherInputStream;
-import javax.crypto.CipherOutputStream;
 import java.io.*;
-import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
@@ -13,23 +12,24 @@ import java.util.Base64;
 /**
  * RSA 非对称加密工具类
  * - 公钥加密 / 私钥解密
- * - 私钥加密 / 公钥解密（签名场景）
+ * - 私钥加密 / 公钥解密（签名场景,正式签名请用 Signature）
  * - 文件加解密（大文件需注意 RSA 块长度限制）
  * - 密钥对持久化
+ * - 数字签名 / 验签
  */
 public class RsaUtils {
 
-    private static final String ALGORITHM = "RSA";
-    private static final String TRANSFORMATION = "RSA/ECB/PKCS1Padding";
-    private static final int KEY_SIZE = 2048;
-    private static final String CHARSET = "UTF-8";
+    private static final String ALGORITHM = CryptoConstant.RSA_ALGORITHM;
+    private static final String TRANSFORMATION = CryptoConstant.RSA_TRANSFORMATION;
+    private static final int KEY_SIZE = CryptoConstant.RSA_KEY_SIZE;
+    private static final String CHARSET = CryptoConstant.CHARSET;
 
     // =====================================================
-    // 1. 密钥对生成 / 持久化
+    // 1. 密钥对生成
     // =====================================================
 
     /**
-     * 生成密钥对
+     * 生成密钥对（默认 2048 位）
      * @return KeyPair
      */
     public static KeyPair generateKeyPair() throws Exception {
@@ -37,6 +37,24 @@ public class RsaUtils {
         keyGen.initialize(KEY_SIZE, new SecureRandom());
         return keyGen.generateKeyPair();
     }
+
+    /**
+     * 生成指定长度的 RSA 密钥对
+     * @param keySize 密钥长度
+     * @return KeyPair
+     */
+    public static KeyPair generateKeyPair(int keySize) throws Exception {
+        if (!CryptoConstant.isValidRsaKeyLength(keySize)) {
+            throw new IllegalArgumentException(CryptoConstant.ERR_RSA_KEY_LENGTH_INVALID);
+        }
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance(ALGORITHM);
+        keyGen.initialize(keySize, new SecureRandom());
+        return keyGen.generateKeyPair();
+    }
+
+    // =====================================================
+    // 2. 密钥对持久化
+    // =====================================================
 
     /**
      * 保存公钥到文件
@@ -67,8 +85,7 @@ public class RsaUtils {
      */
     public static PublicKey loadPublicKey(File file) throws Exception {
         byte[] keyBytes = readAllBytes(file);
-        X509EncodedKeySpec spec = new X509EncodedKeySpec(keyBytes);
-        return KeyFactory.getInstance(ALGORITHM).generatePublic(spec);
+        return KeyFactory.getInstance(ALGORITHM).generatePublic(new X509EncodedKeySpec(keyBytes));
     }
 
     /**
@@ -78,10 +95,12 @@ public class RsaUtils {
      */
     public static PrivateKey loadPrivateKey(File file) throws Exception {
         byte[] keyBytes = readAllBytes(file);
-        PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(keyBytes);
-        return KeyFactory.getInstance(ALGORITHM).generatePrivate(spec);
+        return KeyFactory.getInstance(ALGORITHM).generatePrivate(new PKCS8EncodedKeySpec(keyBytes));
     }
 
+    // =====================================================
+    // 3. 密钥 <-> Base64 字符串
+    // =====================================================
     /**
      * 公钥转 Base64 字符串
      * @param publicKey 公钥
@@ -101,9 +120,9 @@ public class RsaUtils {
     }
 
     /**
-     * 从 Base64 字符串加载私钥
+     * 从 Base64 字符串加载公钥
      * @param base64 Base64 字符串
-     * @return PrivateKey
+     * @return PublicKey
      */
     public static PublicKey publicKeyFromBase64(String base64) throws Exception {
         byte[] keyBytes = Base64.getDecoder().decode(base64);
@@ -121,7 +140,7 @@ public class RsaUtils {
     }
 
     // =====================================================
-    // 2. 字符串加解密
+    // 4. 字符串加解密
     // =====================================================
 
     /**
@@ -177,31 +196,45 @@ public class RsaUtils {
     }
 
     // =====================================================
-    // 3. 文件加解密（分块处理，避免 RSA 长度限制）
+    // 5. 文件加解密（分块处理，避免 RSA 长度限制）
     // =====================================================
+    // 分块大小从 CryptoConstant 读取，避免硬编码
+    // 默认 2048 位密钥：2048 / 8 - 11 = 245 字节
 
     /**
-     * 公钥加密文件
+     * 公钥加密文件 （默认 2048 位分块）
      * @param src 源文件
      * @param dest 目标文件
      * @param publicKey 公钥
      */
     public static void encryptFileByPublicKey(File src, File dest, PublicKey publicKey) throws Exception {
+        encryptFileByPublicKey(src, dest, publicKey, KEY_SIZE);
+    }
+
+    /**
+     * 公钥加密文件 （支持自定义密钥长度）
+     * @param src 源文件
+     * @param dest 目标文件
+     * @param publicKey 公钥
+     * @param keySize 密钥长度（位），如 1024、2048、4096
+     */
+    public static void encryptFileByPublicKey(File src, File dest, PublicKey publicKey, int keySize) throws Exception {
+        if (!CryptoConstant.isValidRsaKeyLength(keySize)) {
+            throw new IllegalArgumentException(CryptoConstant.ERR_RSA_KEY_LENGTH_INVALID);
+        }
+
         Cipher cipher = Cipher.getInstance(TRANSFORMATION);
         cipher.init(Cipher.ENCRYPT_MODE, publicKey);
 
-        // RSA 单块最大加密字节数 = keySize/8 - 11
-        int maxBlock = KEY_SIZE / 8 - 11;
+        int maxBlock = CryptoConstant.rsaMaxEncryptBlock(keySize);
 
         try (FileInputStream fis = new FileInputStream(src);
-             FileOutputStream fos = new FileOutputStream(dest);
-             DataOutputStream dos = new DataOutputStream(fos)) {
-
+             DataOutputStream dos = new DataOutputStream(new FileOutputStream(dest))) {
             byte[] buffer = new byte[maxBlock];
             int len;
             while ((len = fis.read(buffer)) != -1) {
                 byte[] out = cipher.doFinal(buffer, 0, len);
-                dos.writeInt(out.length);  // 写块长度，解密时用
+                dos.writeInt(out.length);
                 dos.write(out);
             }
         }
@@ -236,6 +269,38 @@ public class RsaUtils {
     }
 
     // =====================================================
+    // 6. 数字签名（推荐做法）
+    // =====================================================
+    // RSA 直接加密用于"签名"并不规范，正式场景请用 Signature
+
+    /**
+     * 用私钥对数据签名（SHA256withRSA）
+     * @param data 数据
+     * @param privateKey 私钥
+     * @return 签名的 Base64 字符串
+     */
+    public static String sign(String data, PrivateKey privateKey) throws Exception {
+        Signature signature = Signature.getInstance(CryptoConstant.RSA_SIGN_ALGORITHM);
+        signature.initSign(privateKey);
+        signature.update(data.getBytes(CHARSET));
+        return Base64.getEncoder().encodeToString(signature.sign());
+    }
+
+    /**
+     * 用公钥验签
+     * @param data 数据
+     * @param signBase64 签名的 Base64 字符串
+     * @param publicKey 公钥
+     * @return boolean 是否验签通过
+     */
+    public static boolean verify(String data, String signBase64, PublicKey publicKey) throws Exception {
+        Signature signature = Signature.getInstance(CryptoConstant.RSA_SIGN_ALGORITHM);
+        signature.initVerify(publicKey);
+        signature.update(data.getBytes(CHARSET));
+        return signature.verify(Base64.getDecoder().decode(signBase64));
+    }
+
+    // =====================================================
     // 工具方法
     // =====================================================
 
@@ -247,7 +312,7 @@ public class RsaUtils {
     private static byte[] readAllBytes(File file) throws IOException {
         try (FileInputStream fis = new FileInputStream(file);
              ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
-            byte[] buffer = new byte[8192];
+            byte[] buffer = new byte[CryptoConstant.BUFFER_SIZE];
             int len;
             while ((len = fis.read(buffer)) != -1) {
                 bos.write(buffer, 0, len);
@@ -255,17 +320,4 @@ public class RsaUtils {
             return bos.toByteArray();
         }
     }
-
-    // =====================================================
-    // 测试
-    // =====================================================
-
-//    public static void main(String[] args) throws Exception {
-//        KeyPair keyPair = generateKeyPair();
-//
-//        String text = "Hello, RSA!";
-//        String enc = encryptByPublicKey(text, keyPair.getPublic());
-//        System.out.println("加密: " + enc);
-//        System.out.println("解密: " + decryptByPrivateKey(enc, keyPair.getPrivate()));
-//    }
 }

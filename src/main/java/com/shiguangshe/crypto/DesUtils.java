@@ -1,5 +1,7 @@
 package com.shiguangshe.crypto;
 
+import com.shiguangshe.crypto.constant.CryptoConstant;
+
 import javax.crypto.Cipher;
 import javax.crypto.CipherInputStream;
 import javax.crypto.CipherOutputStream;
@@ -16,11 +18,11 @@ import java.util.Base64;
  */
 public class DesUtils {
 
-    private static final String ALGORITHM = "DES";
-    private static final String TRANSFORMATION = "DES/CBC/PKCS5Padding";
-    private static final int KEY_SIZE = 56;
-    private static final int IV_SIZE = 8;   // DES IV 固定 8 字节
-    private static final String CHARSET = "UTF-8";
+    private static final String ALGORITHM = CryptoConstant.DES_ALGORITHM;
+    private static final String TRANSFORMATION = CryptoConstant.DES_TRANSFORMATION;
+    private static final int KEY_SIZE = CryptoConstant.DES_KEY_SIZE;
+    private static final int IV_SIZE = CryptoConstant.DES_IV_SIZE;   // DES IV 固定 8 字节
+    private static final String CHARSET = CryptoConstant.CHARSET;
 
     // =====================================================
     // 1. 密钥生成 / 持久化
@@ -48,13 +50,18 @@ public class DesUtils {
     }
 
     /**
-     * 从文件密钥
+     * 从文件加载密钥
      * @param file 文件
      * @return SecretKey
      */
     public static SecretKey loadKey(File file) throws IOException {
-        byte[] keyBytes = readAllBytes(file);
-        return new SecretKeySpec(keyBytes, ALGORITHM);
+        try (FileInputStream fis = new FileInputStream(file);
+             ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[CryptoConstant.BUFFER_SIZE];
+            int len;
+            while ((len = fis.read(buffer)) != -1) bos.write(buffer, 0, len);
+            return new SecretKeySpec(bos.toByteArray(), ALGORITHM);
+        }
     }
 
     /**
@@ -72,7 +79,11 @@ public class DesUtils {
      * @return SecretKey
      */
     public static SecretKey keyFromBase64(String base64Key) {
-        return new SecretKeySpec(Base64.getDecoder().decode(base64Key), ALGORITHM);
+        byte[] keyBytes = Base64.getDecoder().decode(base64Key);
+        if (!CryptoConstant.isValidDesKeyLength(keyBytes)) {
+            throw new IllegalArgumentException(CryptoConstant.ERR_DES_KEY_LENGTH_INVALID);
+        }
+        return new SecretKeySpec(keyBytes, ALGORITHM);
     }
 
     // =====================================================
@@ -95,7 +106,6 @@ public class DesUtils {
         byte[] combined = new byte[IV_SIZE + encrypted.length];
         System.arraycopy(iv, 0, combined, 0, IV_SIZE);
         System.arraycopy(encrypted, 0, combined, IV_SIZE, encrypted.length);
-
         return Base64.getEncoder().encodeToString(combined);
     }
 
@@ -107,6 +117,9 @@ public class DesUtils {
      */
     public static String decrypt(String cipherText, SecretKey key) throws Exception {
         byte[] combined = Base64.getDecoder().decode(cipherText);
+        if (combined.length < IV_SIZE) {
+            throw new IllegalArgumentException(CryptoConstant.ERR_CIPHER_TEXT_INVALID);
+        }
         byte[] iv = new byte[IV_SIZE];
         byte[] encrypted = new byte[combined.length - IV_SIZE];
         System.arraycopy(combined, 0, iv, 0, IV_SIZE);
@@ -138,7 +151,7 @@ public class DesUtils {
             fos.write(iv);
             try (FileInputStream fis = new FileInputStream(src);
                  CipherOutputStream cos = new CipherOutputStream(fos, cipher)) {
-                byte[] buffer = new byte[8192];
+                byte[] buffer = new byte[CryptoConstant.BUFFER_SIZE];
                 int len;
                 while ((len = fis.read(buffer)) != -1) {
                     cos.write(buffer, 0, len);
@@ -157,40 +170,19 @@ public class DesUtils {
         try (FileInputStream fis = new FileInputStream(src)) {
             byte[] iv = new byte[IV_SIZE];
             if (fis.read(iv) != IV_SIZE) {
-                throw new IllegalArgumentException("文件头 IV 读取失败");
+                throw new IllegalArgumentException(CryptoConstant.ERR_IV_READ_FAILED);
             }
             Cipher cipher = Cipher.getInstance(TRANSFORMATION);
             cipher.init(Cipher.DECRYPT_MODE, key, new IvParameterSpec(iv));
 
             try (CipherInputStream cis = new CipherInputStream(fis, cipher);
                  FileOutputStream fos = new FileOutputStream(dest)) {
-                byte[] buffer = new byte[8192];
+                byte[] buffer = new byte[CryptoConstant.BUFFER_SIZE];
                 int len;
                 while ((len = cis.read(buffer)) != -1) {
                     fos.write(buffer, 0, len);
                 }
             }
-        }
-    }
-
-    // =====================================================
-    // 工具方法
-    // =====================================================
-
-    /**
-     * 读取文件所有字节
-     * @param file 文件
-     * @return 文件字节数组
-     */
-    private static byte[] readAllBytes(File file) throws IOException {
-        try (FileInputStream fis = new FileInputStream(file);
-             ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
-            byte[] buffer = new byte[8192];
-            int len;
-            while ((len = fis.read(buffer)) != -1) {
-                bos.write(buffer, 0, len);
-            }
-            return bos.toByteArray();
         }
     }
 }

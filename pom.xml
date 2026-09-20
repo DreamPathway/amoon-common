@@ -4,7 +4,7 @@
 
   <groupId>io.github.dreampathway</groupId>
   <artifactId>amoon-common</artifactId>
-  <version>1.1.0</version>
+  <version>1.1.2</version>
   <packaging>jar</packaging>
 
   <name>${project.groupId}:${project.artifactId}</name>

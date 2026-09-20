@@ -1,6 +1,6 @@
 package com.shiguangshe.crypto;
 
-
+import com.shiguangshe.crypto.constant.CryptoConstant;
 import org.mindrot.jbcrypt.BCrypt;
 
 /**
@@ -8,13 +8,10 @@ import org.mindrot.jbcrypt.BCrypt;
  * 特点：
  * - 自动加盐，无需手动管理 salt
  * - 慢哈希，抗 GPU / 彩虹表暴力破解
+ * - 单向哈希，不能"解密"，只能 verify
  * - 每次加密结果不同（因为盐随机），但都能验证通过
- * 注意：bcrypt 是单向哈希，不能"解密"，只能 verify
  */
 public class PasswordUtils {
-
-    /** bcrypt cost 因子，默认 10。越大越慢越安全，推荐 10~12 */
-    private static final int COST = 12;
 
     /**
      * 对明文密码进行哈希
@@ -23,9 +20,9 @@ public class PasswordUtils {
      */
     public static String hash(String plainPassword) {
         if (plainPassword == null || plainPassword.isEmpty()) {
-            throw new IllegalArgumentException("密码不能为空");
+            throw new IllegalArgumentException(CryptoConstant.ERR_PASSWORD_EMPTY);
         }
-        return BCrypt.hashpw(plainPassword, BCrypt.gensalt(COST));
+        return BCrypt.hashpw(plainPassword, BCrypt.gensalt(CryptoConstant.BCRYPT_COST));
     }
 
     /**
@@ -45,22 +42,4 @@ public class PasswordUtils {
             return false;
         }
     }
-
-    // =====================================================
-    // 测试
-    // =====================================================
-
-//    public static void main(String[] args) {
-//        String password = "MyP@ssw0rd!";
-//
-//        // 两次 hash 结果不同，因为盐随机
-//        String hash1 = hash(password);
-//        String hash2 = hash(password);
-//        System.out.println("hash1: " + hash1);
-//        System.out.println("hash2: " + hash2);
-//
-//        // 但验证都能通过
-//        System.out.println("verify 正确密码: " + verify(password, hash1));   // true
-//        System.out.println("verify 错误密码: " + verify("wrong", hash1));    // false
-//    }
 }

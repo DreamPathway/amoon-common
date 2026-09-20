@@ -3,28 +3,29 @@ package com.shiguangshe.crypto;
 import com.shiguangshe.crypto.constant.CryptoConstant;
 
 import javax.crypto.Cipher;
-import javax.crypto.CipherInputStream;
-import javax.crypto.CipherOutputStream;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
-import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.*;
 import java.security.SecureRandom;
 import java.util.Base64;
 
 /**
- * AES 对称加密工具类
- * - 字符串加解密（随机 IV）
- * - 文件加解密
- * - 密钥持久化到文件
+ * AES-GCM 认证加密工具类（推荐新项目使用）
+ * 相比 CBC：
+ * - 自带完整性校验（认证标签），密文被篡改会解密失败
+ * - 无需单独 PKCS5 填充
+ * - IV/Nonce 推荐 12 字节，每次加密随机生成
+ * 格式：IV(12 字节) + 密文(含 16 字节认证标签)，Base64 输出
  */
-public class AesUtils {
+public class AesGcmUtils {
 
     private static final String ALGORITHM = CryptoConstant.AES_ALGORITHM;
-    private static final String TRANSFORMATION = CryptoConstant.AES_TRANSFORMATION_CBC;
+    private static final String TRANSFORMATION = CryptoConstant.AES_TRANSFORMATION_GCM;
     private static final int KEY_SIZE = CryptoConstant.AES_KEY_SIZE;
-    private static final int IV_SIZE = CryptoConstant.AES_IV_SIZE;
+    private static final int IV_SIZE = CryptoConstant.AES_GCM_IV_SIZE;   // 12
+    private static final int TAG_LENGTH = CryptoConstant.AES_GCM_TAG_LENGTH; // 128
     private static final String CHARSET = CryptoConstant.CHARSET;
 
     // =====================================================
@@ -32,39 +33,13 @@ public class AesUtils {
     // =====================================================
 
     /**
-     * 生成 AES 密钥
+     * 生成 AES-GCM 密钥
      * @return SecretKey
      */
     public static SecretKey generateKey() throws Exception {
         KeyGenerator keyGen = KeyGenerator.getInstance(ALGORITHM);
         keyGen.init(KEY_SIZE, new SecureRandom());
         return keyGen.generateKey();
-    }
-
-    /**
-     * 保存密钥到文件
-     * @param key 待保存的密钥
-     * @param file 保存密钥的文件
-     */
-    public static void saveKey(SecretKey key, File file) throws IOException {
-        try (FileOutputStream fos = new FileOutputStream(file)) {
-            fos.write(key.getEncoded());
-        }
-    }
-
-    /**
-     * 从文件加载密钥
-     * @param file 密钥文件
-     * @return SecretKey
-     */
-    public static SecretKey loadKey(File file) throws IOException {
-        try (FileInputStream fis = new FileInputStream(file);
-             ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
-            byte[] buffer = new byte[CryptoConstant.BUFFER_SIZE];
-            int len;
-            while ((len = fis.read(buffer)) != -1) bos.write(buffer, 0, len);
-            return new SecretKeySpec(bos.toByteArray(), ALGORITHM);
-        }
     }
 
     /**
@@ -77,7 +52,7 @@ public class AesUtils {
     }
 
     /**
-     * Base64 字符串还原密钥
+     * Base64 字符串还原密钥（带长度校验）
      * @param base64Key Base64 字符串
      * @return SecretKey
      */
@@ -90,24 +65,25 @@ public class AesUtils {
     }
 
     // =====================================================
-    // 2. 字符串加解密（随机 IV，IV 拼在密文前面）
+    // 2. 字符串加解密
     // =====================================================
 
     /**
      * 加密字符串
      * @param plainText 待加密的字符串
      * @param key 密钥
-     * @return Base64 编码的加密字符串
+     * @return Base64 编码的加密字符串（IV + 密文 + 认证标签）
      */
     public static String encrypt(String plainText, SecretKey key) throws Exception {
         byte[] iv = new byte[IV_SIZE];
         new SecureRandom().nextBytes(iv);
 
         Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-        cipher.init(Cipher.ENCRYPT_MODE, key, new IvParameterSpec(iv));
+        GCMParameterSpec gcmSpec = new GCMParameterSpec(TAG_LENGTH, iv);
+        cipher.init(Cipher.ENCRYPT_MODE, key, gcmSpec);
         byte[] encrypted = cipher.doFinal(plainText.getBytes(CHARSET));
 
-        // IV + 密文
+        // IV + 密文（含认证标签）
         byte[] combined = new byte[IV_SIZE + encrypted.length];
         System.arraycopy(iv, 0, combined, 0, IV_SIZE);
         System.arraycopy(encrypted, 0, combined, IV_SIZE, encrypted.length);
@@ -120,6 +96,7 @@ public class AesUtils {
      * @param cipherText 待解密的字符串
      * @param key 密钥
      * @return 解密后的明文字符串
+     * @throws javax.crypto.AEADBadTagException 密文被篡改或密钥错误
      */
     public static String decrypt(String cipherText, SecretKey key) throws Exception {
         byte[] combined = Base64.getDecoder().decode(cipherText);
@@ -132,7 +109,8 @@ public class AesUtils {
         System.arraycopy(combined, IV_SIZE, encrypted, 0, encrypted.length);
 
         Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-        cipher.init(Cipher.DECRYPT_MODE, key, new IvParameterSpec(iv));
+        GCMParameterSpec gcmSpec = new GCMParameterSpec(TAG_LENGTH, iv);
+        cipher.init(Cipher.DECRYPT_MODE, key, gcmSpec);
         return new String(cipher.doFinal(encrypted), CHARSET);
     }
 
@@ -151,19 +129,24 @@ public class AesUtils {
         new SecureRandom().nextBytes(iv);
 
         Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-        cipher.init(Cipher.ENCRYPT_MODE, key, new IvParameterSpec(iv));
+        GCMParameterSpec gcmSpec = new GCMParameterSpec(TAG_LENGTH, iv);
+        cipher.init(Cipher.ENCRYPT_MODE, key, gcmSpec);
 
         try (FileOutputStream fos = new FileOutputStream(dest)) {
             // 先把 IV 写进文件头
             fos.write(iv);
 
-            try (FileInputStream fis = new FileInputStream(src);
-                 CipherOutputStream cos = new CipherOutputStream(fos, cipher)) {
+            try (FileInputStream fis = new FileInputStream(src)) {
                 byte[] buffer = new byte[CryptoConstant.BUFFER_SIZE];
+                byte[] output;
                 int len;
                 while ((len = fis.read(buffer)) != -1) {
-                    cos.write(buffer, 0, len);
+                    output = cipher.update(buffer, 0, len);
+                    if (output != null) fos.write(output);
                 }
+                // doFinal 会输出认证标签
+                output = cipher.doFinal();
+                if (output != null) fos.write(output);
             }
         }
     }
@@ -183,15 +166,20 @@ public class AesUtils {
             }
 
             Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-            cipher.init(Cipher.DECRYPT_MODE, key, new IvParameterSpec(iv));
+            GCMParameterSpec gcmSpec = new GCMParameterSpec(TAG_LENGTH, iv);
+            cipher.init(Cipher.DECRYPT_MODE, key, gcmSpec);
 
-            try (CipherInputStream cis = new CipherInputStream(fis, cipher);
-                 FileOutputStream fos = new FileOutputStream(dest)) {
+            try (FileOutputStream fos = new FileOutputStream(dest)) {
                 byte[] buffer = new byte[CryptoConstant.BUFFER_SIZE];
+                byte[] output;
                 int len;
-                while ((len = cis.read(buffer)) != -1) {
-                    fos.write(buffer, 0, len);
+                while ((len = fis.read(buffer)) != -1) {
+                    output = cipher.update(buffer, 0, len);
+                    if (output != null) fos.write(output);
                 }
+                // doFinal 会校验认证标签，失败抛 AEADBadTagException
+                output = cipher.doFinal();
+                if (output != null) fos.write(output);
             }
         }
     }
